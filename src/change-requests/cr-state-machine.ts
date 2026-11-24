@@ -30,7 +30,8 @@ export function assertTransition(from: CrStatus, to: CrStatus): void {
 	if (isTerminal(from)) {
 		throw Errors.terminal(`Cannot move a ${from} change request to ${to}`);
 	}
-	// TODO: this only checks that `from` is non-terminal. It must also reject transitions that
-	// are not declared legal above (use canTransition(from, to)).
-	return;
+	// Reject moves that are not declared legal in LEGAL_TRANSITIONS.
+	if (!canTransition(from, to)) {
+		throw Errors.illegalTransition(`Illegal transition: ${from} -> ${to} is not allowed`);
+	}
 }
