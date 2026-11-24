@@ -5,16 +5,21 @@
 > these instructions before submitting.
 
 ## 1. What I changed
-<!-- A short summary of the changes you made, ideally grouped by task. What bugs did you fix, what did you
-implement, and why? -->
 
--
+### Task 1: fix the failing tests
+- **Money rounding** (`src/common/money.util.ts`): `round2` used `Math.trunc`, which cuts off decimals instead of rounding. For example, 3 × 6.669 = 20.007 became 20.00 instead of 20.01. I changed it to `Math.round(value * 100) / 100` so amounts round to the nearest cent.
+- **Transition guard** (`src/change-requests/cr-state-machine.ts`): `assertTransition` only checked whether the current state was terminal, so illegal moves like DRAFT → APPROVED were allowed. It now also checks `canTransition(from, to)` against `LEGAL_TRANSITIONS` and throws an `ILLEGAL_TRANSITION` business error.
+- I also completed the `LEGAL_TRANSITIONS` table with the missing transitions, so the guard can enforce the full workflow.
 
 ## 2. Domain model
-<!-- Describe the domain in your own words: the entities, the state machine, and how transitions are
-guarded. A small diagram or table is welcome. -->
 
--
+- A **Purchase Agreement** is a deal between a buyer organization and a vendor, with line items (SKU, quantity, unit price) and a budget that pays for it. Once an agreement is active, it isn't edited directly. Changes go through a **Change Request (CR)**, which belongs to exactly one organization and carries the proposed changes, the totals (`baselineTotal`, `newTotal`, `delta`), the approvals and an audit trail.
+
+- A CR moves through a **state machine**: DRAFT → SUBMITTED → PENDING_APPROVAL → APPROVED → APPLIED. A small change (`|delta|` at or below the threshold) needs one approver. A large change goes through a committee vote (COMMITTEE_VOTING → COMMITTEE_DECISION) before it's approved. A CR can be returned for edits, and any non-terminal CR can be rejected or cancelled. APPLIED, REJECTED and CANCELLED are terminal, so they are immutable.
+
+- Transitions are guarded in one place: `assertTransition` checks every move against the `LEGAL_TRANSITIONS` table, and the service's `transition` helper calls it before it changes the status and appends an audit entry. This means no action can skip a step.
+
+
 
 ## 3. Invariants I enforce (and how)
 <!-- Which properties your implementation guarantees, and where in the code each one is enforced. -->
