@@ -126,9 +126,19 @@ export class CrService {
 		return this.repo.save(cr);
 	}
 
+	/**
+	 * Any non-terminal status -> REJECTED (terminal). A reviewer says no to the change.
+	 * The budget is never touched: only `apply` spends budget.
+	 */
 	reject(user: ReqUser, id: string, at: string): ChangeRequest {
-		// TODO: legal transition to REJECTED (terminal); budget untouched; audit.
-		throw Errors.validation('reject not implemented');
+		const cr = this.getOrThrow(user, id);
+		// Rejecting is a review decision, so it needs the approve policy.
+		if (!canActOn(user, cr, 'a')) throw Errors.forbidden('Cannot reject');
+
+		// The guard allows REJECTED from any non-terminal status and throws for terminal ones.
+		// `transition` also appends the audit entry.
+		this.transition(cr, CrStatus.REJECTED, CrAction.REJECT, user.id, at);
+		return this.repo.save(cr);
 	}
 
 	apply(user: ReqUser, id: string, at: string): ChangeRequest {
