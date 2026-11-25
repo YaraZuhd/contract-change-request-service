@@ -106,9 +106,24 @@ export class CrService {
 		throw Errors.validation('castVote not implemented');
 	}
 
+	/**
+	 * PENDING_APPROVAL -> RETURNED -> DRAFT. A reviewer sends the CR back for edits, so approval
+	 * progress starts over. The audit trail still keeps the full history.
+	 */
 	returnToDraft(user: ReqUser, id: string, at: string): ChangeRequest {
-		// TODO: PENDING_APPROVAL -> RETURNED -> editable as DRAFT; reset approval progress.
-		throw Errors.validation('return not implemented');
+		const cr = this.getOrThrow(user, id);
+		// Returning is a review decision, so it needs the approve policy.
+		if (!canActOn(user, cr, 'a')) throw Errors.forbidden('Cannot return to draft');
+
+		// Both steps are legal and audited. The first throws unless the CR is PENDING_APPROVAL
+		// (committee CRs cannot be returned).
+		this.transition(cr, CrStatus.RETURNED, CrAction.RETURN, user.id, at);
+		this.transition(cr, CrStatus.DRAFT, CrAction.RETURN, user.id, at, 'Returned to draft for edits');
+
+		// Reset approval progress only after the transitions succeed.
+		cr.approvals = [];
+		cr.committee = undefined;
+		return this.repo.save(cr);
 	}
 
 	reject(user: ReqUser, id: string, at: string): ChangeRequest {
