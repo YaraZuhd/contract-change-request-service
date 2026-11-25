@@ -4,7 +4,7 @@ import { CrStatus, CrAction } from './cr.enums';
 import { assertTransition } from './cr-state-machine';
 import { computeTotals } from './cr-totals';
 import { Errors } from '../common/errors';
-import { ReqUser, hasPolicy } from '../common/policy';
+import { ReqUser, canActOn, hasPolicy } from '../common/policy';
 
 /**
  * Orchestrates CR actions. The transition + audit helper is provided; the action methods are
@@ -43,10 +43,33 @@ export class CrService {
 		return this.repo.save(cr);
 	}
 
+	/**
+	 * SUBMITTED -> PENDING_APPROVAL. Small changes (|delta| <= threshold) stay pending for a single
+	 * approver; larger ones are routed straight on to COMMITTEE_VOTING.
+	 */
 	sendForApproval(user: ReqUser, id: string, at: string): ChangeRequest {
-		// TODO: move SUBMITTED -> PENDING_APPROVAL, and decide single-approver vs committee
-		//       routing based on |delta| and COMMITTEE_DELTA_THRESHOLD.
-		throw Errors.validation('sendForApproval not implemented');
+		const cr = this.getOrThrow(user, id);
+		if (!canActOn(user, cr, 'u')) throw Errors.forbidden('Cannot send for approval');
+
+		// Validate and compute everything that can fail before mutating the CR.
+		const agreement = this.agreements.get(cr.agreementId);
+		if (!agreement) throw Errors.notFound('Agreement not found');
+		const totals = computeTotals(agreement, cr);
+		const config = this.committeeConfig;
+		const needsCommittee = Math.abs(totals.delta) > COMMITTEE_DELTA_THRESHOLD;
+		if (needsCommittee && !config) throw Errors.validation('Committee config not provided');
+
+		// Guarded transition: throws if the CR is not SUBMITTED.
+		this.transition(cr, CrStatus.PENDING_APPROVAL, CrAction.SEND_FOR_APPROVAL, user.id, at);
+		cr.totals = totals;
+
+		// Large change: route to the committee. Both steps are legal and audited.
+		if (needsCommittee && config) {
+			this.transition(cr, CrStatus.COMMITTEE_VOTING, CrAction.SEND_FOR_APPROVAL, user.id, at, 'Routed to committee for approval');
+			cr.committee = { members: config.members, head: config.head, votes: [] };
+		}
+
+		return this.repo.save(cr);
 	}
 
 	approve(user: ReqUser, id: string, at: string): ChangeRequest {
