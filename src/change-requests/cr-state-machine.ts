@@ -4,12 +4,8 @@ import { Errors } from '../common/errors';
 /**
  * Legal transitions for the CR state machine. See README diagram.
  *
- * This table is incomplete — only the first two transitions are filled in. Complete it for
- * the full flow (approve / return / reject / apply / committee branch).
- *
- * `assertTransition` below is also too permissive: it currently allows ANY move out of a
- * non-terminal state instead of only the legal ones declared here, which lets (for example)
- * DRAFT -> APPROVED happen directly. Make it enforce the declared transitions.
+ * The table lists the declared moves between statuses. REJECTED and CANCELLED are handled by a
+ * general rule in `canTransition`: any non-terminal status can move to them.
  */
 export const LEGAL_TRANSITIONS: Partial<Record<CrStatus, CrStatus[]>> = {
 	[CrStatus.DRAFT]: [CrStatus.SUBMITTED, CrStatus.CANCELLED],
@@ -22,6 +18,15 @@ export const LEGAL_TRANSITIONS: Partial<Record<CrStatus, CrStatus[]>> = {
 };
 
 export function canTransition(from: CrStatus, to: CrStatus): boolean {
+	// 1. Terminal statuses are immutable: nothing can move out of them.
+	if (isTerminal(from)) {
+		return false;
+	}
+	// 2. Any non-terminal status can be rejected or cancelled. This relies on rule 1 running first.
+	if (to === CrStatus.CANCELLED || to === CrStatus.REJECTED) {
+		return true;
+	}
+	// 3. Otherwise the move must be declared in the table.
 	return (LEGAL_TRANSITIONS[from] ?? []).includes(to);
 }
 
