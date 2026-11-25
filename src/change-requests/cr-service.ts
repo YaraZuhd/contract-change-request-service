@@ -102,9 +102,52 @@ export class CrService {
 		return this.repo.save(cr);
 	}
 
+	/**
+	 * Record a committee vote. Once every voter (the members, plus the head if not a member) has
+	 * voted, the committee resolves: COMMITTEE_VOTING -> COMMITTEE_DECISION -> APPROVED | REJECTED.
+	 * Approved only if a strict majority of the MEMBERS approved AND the head approved.
+	 */
 	castVote(user: ReqUser, id: string, decision: 'APPROVE' | 'REJECT', at: string): ChangeRequest {
-		// TODO: only committee members may vote; resolve on majority + head decision.
-		throw Errors.validation('castVote not implemented');
+		const cr = this.getOrThrow(user, id);
+		if (decision !== 'APPROVE' && decision !== 'REJECT') throw Errors.validation('Invalid vote decision');
+		if (!canActOn(user, cr, 'a')) throw Errors.forbidden('Cannot cast vote');
+		// Four-eyes rule, same as approve: the creator cannot vote on their own CR.
+		if (cr.createdBy === user.id) throw Errors.forbidden('Cannot vote on your own CR');
+		// Voting is not a transition, so the guard won't check the status for us.
+		if (cr.status !== CrStatus.COMMITTEE_VOTING) throw Errors.validation('CR is not in committee voting status');
+		const committee = cr.committee;
+		if (!committee) throw Errors.validation('Committee data missing for CR');
+		const isVoter = committee.members.includes(user.id) || committee.head === user.id;
+		if (!isVoter) throw Errors.forbidden('User is not on the committee');
+		if (committee.votes.some((v) => v.userId === user.id)) throw Errors.conflict('User has already voted');
+
+		// Record the vote and its audit entry (a vote is not a status change, so transition() won't audit it).
+		committee.votes = [...committee.votes, { userId: user.id, decision, at }];
+		cr.audit = [...cr.audit, { action: CrAction.CAST_VOTE, byUserId: user.id, at, note: decision }];
+
+		// Everyone who may vote: the members, plus the head if the head is not a member.
+		const voterCount = committee.members.includes(committee.head) ? committee.members.length : committee.members.length + 1;
+		if (committee.votes.length < voterCount) return this.repo.save(cr); // still waiting for votes
+
+		// Majority counts MEMBERS only: strictly more than half must approve.
+		const majority = Math.floor(committee.members.length / 2) + 1;
+		const memberApprovals = committee.votes.filter((v) => v.decision === 'APPROVE' && committee.members.includes(v.userId)).length;
+		// The head must also confirm with an APPROVE vote.
+		const headApproved = committee.votes.some((v) => v.userId === committee.head && v.decision === 'APPROVE');
+		const approved = memberApprovals >= majority && headApproved;
+
+		// Both steps are legal and audited.
+		this.transition(cr, CrStatus.COMMITTEE_DECISION, CrAction.RESOLVE_COMMITTEE, user.id, at, 'All votes received');
+		this.transition(
+			cr,
+			approved ? CrStatus.APPROVED : CrStatus.REJECTED,
+			CrAction.RESOLVE_COMMITTEE,
+			user.id,
+			at,
+			approved ? 'Committee approved the CR' : 'Committee rejected the CR',
+		);
+		committee.resolvedAt = at;
+		return this.repo.save(cr);
 	}
 
 	/**
