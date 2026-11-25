@@ -5,6 +5,7 @@ import { assertTransition } from './cr-state-machine';
 import { computeTotals } from './cr-totals';
 import { Errors } from '../common/errors';
 import { ReqUser, canActOn, hasPolicy } from '../common/policy';
+import { round2 } from '../common/money.util';
 
 /**
  * Orchestrates CR actions. The transition + audit helper is provided; the action methods are
@@ -141,11 +142,44 @@ export class CrService {
 		return this.repo.save(cr);
 	}
 
+	/**
+	 * APPROVED -> APPLIED. Checks the budget can cover a positive delta, then books the delta against
+	 * the budget and writes the change into the agreement.
+	 */
 	apply(user: ReqUser, id: string, at: string): ChangeRequest {
-		// TODO: require APPROVED + cr_x_* policy; check budget.balance covers a positive delta else
-		//       INSUFFICIENT_BUDGET; update budget, set APPLIED, audit. Recompute totals from the
-		//       agreement.
-		throw Errors.validation('apply not implemented');
+		const cr = this.getOrThrow(user, id);
+		if (!canActOn(user, cr, 'x')) throw Errors.forbidden('Cannot apply');
+
+		// Look up and validate everything that can fail before changing anything.
+		const agreement = this.agreements.get(cr.agreementId);
+		if (!agreement) throw Errors.notFound('Agreement not found');
+		const budget = this.budgets.get(agreement.budgetId);
+		if (!budget) throw Errors.notFound('Budget not found');
+		if (agreement.orgCode !== cr.orgCode || budget.orgCode !== cr.orgCode) {
+			throw Errors.forbidden('Agreement and budget must belong to the same organization as the CR');
+		}
+
+		// Recompute from the agreement: the totals stored on the CR may be stale.
+		const totals = computeTotals(agreement, cr);
+		// Only a positive delta consumes budget. A delta equal to the balance is allowed.
+		if (totals.delta > 0 && totals.delta > budget.balance) throw Errors.insufficientBudget();
+
+		// Guarded transition (throws unless the CR is APPROVED). It runs BEFORE any budget change so a
+		// failed apply can never spend budget.
+		this.transition(cr, CrStatus.APPLIED, CrAction.APPLY, user.id, at);
+
+		// Book the delta (a negative delta releases budget). Keeps balance = allocated - booked - spent.
+		budget.booked = round2(budget.booked + totals.delta);
+		budget.balance = round2(budget.balance - totals.delta);
+
+		// Write the approved change into the agreement.
+		const { lineItems, newEndDate } = cr.draftChanges;
+		if (lineItems && lineItems.length) agreement.lineItems = lineItems.map((li) => ({ ...li }));
+		if (newEndDate) agreement.endDate = newEndDate;
+		agreement.total = totals.newTotal;
+
+		cr.totals = totals;
+		return this.repo.save(cr);
 	}
 
 	/** Read a single CR. */
