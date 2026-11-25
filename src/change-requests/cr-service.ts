@@ -72,10 +72,33 @@ export class CrService {
 		return this.repo.save(cr);
 	}
 
+	/**
+	 * PENDING_APPROVAL -> APPROVED by a single approver. Committee CRs are never approved here;
+	 * they are resolved through committee votes.
+	 */
 	approve(user: ReqUser, id: string, at: string): ChangeRequest {
-		// TODO: permission check (cr_a_*); legal transition; record approval + audit.
-		//       Committee CRs approve only via committee resolution.
-		throw Errors.validation('approve not implemented');
+		const cr = this.getOrThrow(user, id);
+		if (!canActOn(user, cr, 'a')) throw Errors.forbidden('Cannot approve');
+		// Four-eyes rule: someone other than the creator must approve.
+		if (cr.createdBy === user.id) throw Errors.forbidden('Cannot approve your own CR');
+		if (cr.status === CrStatus.COMMITTEE_VOTING) {
+			throw Errors.validation('Committee CRs must be resolved via committee resolution');
+		}
+
+		// Re-check the delta now: the agreement may have changed since the CR was sent for approval
+		// (e.g. another CR was applied), and a CR that is now large must not be approved by one person.
+		const agreement = this.agreements.get(cr.agreementId);
+		if (!agreement) throw Errors.notFound('Agreement not found');
+		const totals = computeTotals(agreement, cr);
+		if (Math.abs(totals.delta) > COMMITTEE_DELTA_THRESHOLD) {
+			throw Errors.conflict('The data changed since the CR was sent for approval; committee approval is required');
+		}
+
+		// Guarded transition (throws unless the CR is PENDING_APPROVAL); it also appends the audit entry.
+		this.transition(cr, CrStatus.APPROVED, CrAction.APPROVE, user.id, at);
+		cr.totals = totals;
+		cr.approvals = [...cr.approvals, { userId: user.id, action: CrAction.APPROVE, at }];
+		return this.repo.save(cr);
 	}
 
 	castVote(user: ReqUser, id: string, decision: 'APPROVE' | 'REJECT', at: string): ChangeRequest {
