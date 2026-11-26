@@ -22,8 +22,11 @@ export class CrRepo {
 		return this.scoped(user, [...this.store.values()]);
 	}
 
+	/** Org-scoped lookup: a CR from another org looks exactly like a missing one. */
 	findOne(user: ReqUser, id: string): ChangeRequest | undefined {
-		return this.store.get(id);
+		const cr = this.store.get(id);
+		if (!cr) return undefined;
+		return this.scoped(user, [cr])[0];
 	}
 
 	save(cr: ChangeRequest): ChangeRequest {
