@@ -1,5 +1,5 @@
 import { ChangeRequest } from './cr.types';
-import { ReqUser } from '../common/policy';
+import { canActOn, ReqUser } from '../common/policy';
 
 /**
  * Minimal in-memory repository standing in for the Mongoose data layer. In the full scaffold this
@@ -13,9 +13,12 @@ export class CrRepo {
 		for (const cr of crs) this.store.set(cr.id, { ...cr });
 	}
 
-	/** The org-scope choke point: filter a candidate set down to the caller's org. */
+	/**
+	 * The scoping choke point for reads: keep only the CRs in the caller's org that the caller's
+	 * read policy (own / workspace / org) allows them to see.
+	 */
 	private scoped(user: ReqUser, crs: ChangeRequest[]): ChangeRequest[] {
-		return crs.filter((cr) => cr.orgCode === user.orgCode);
+		return crs.filter((cr) => cr.orgCode === user.orgCode && canActOn(user, cr, 'r'));
 	}
 
 	list(user: ReqUser): ChangeRequest[] {

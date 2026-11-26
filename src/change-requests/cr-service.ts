@@ -21,13 +21,11 @@ export class CrService {
 		private readonly committeeConfig?: { members: string[]; head: string },
 	) {}
 
-	/**
-	 * Load a CR for this user or throw NOT_FOUND. A CR from another org, or one the user cannot read,
-	 * looks exactly like a missing one, and acting on a CR requires being able to read it.
-	 */
+	/** Load a CR for this user or throw NOT_FOUND. */
 	private getOrThrow(user: ReqUser, id: string): ChangeRequest {
+		// findOne is already scoped by org and read policy, so unreadable CRs look missing.
 		const cr = this.repo.findOne(user, id);
-		if (!cr || !canActOn(user, cr, 'r')) throw Errors.notFound(`CR ${id} not found`);
+		if (!cr) throw Errors.notFound(`CR ${id} not found`);
 		return cr;
 	}
 
