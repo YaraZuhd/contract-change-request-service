@@ -21,10 +21,13 @@ export class CrService {
 		private readonly committeeConfig?: { members: string[]; head: string },
 	) {}
 
-	/** Load a CR for this user or throw NOT_FOUND. */
+	/**
+	 * Load a CR for this user or throw NOT_FOUND. A CR from another org, or one the user cannot read,
+	 * looks exactly like a missing one, and acting on a CR requires being able to read it.
+	 */
 	private getOrThrow(user: ReqUser, id: string): ChangeRequest {
 		const cr = this.repo.findOne(user, id);
-		if (!cr) throw Errors.notFound(`CR ${id} not found`);
+		if (!cr || !canActOn(user, cr, 'r')) throw Errors.notFound(`CR ${id} not found`);
 		return cr;
 	}
 
