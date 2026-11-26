@@ -25,3 +25,19 @@ export function codeOf(fn: () => unknown): string | undefined {
 	}
 	return undefined;
 }
+
+/** A fresh service with one CR already routed to the committee (delta 1500). */
+export function makeCommitteeCr() {
+	const ctx = makeService();
+	const { service, users } = ctx;
+
+	const cr = service.get(users.alice, 'CR-DRAFT');
+	cr.draftChanges.lineItems = [
+		{ sku: 'A', quantity: 13, unitPrice: 500 },
+		{ sku: 'B', quantity: 30, unitPrice: 100 },
+	];
+	service.submit(users.alice, cr.id, '2026-11-26T08:00:00Z');
+	service.sendForApproval(users.alice, cr.id, '2026-11-26T09:00:00Z');
+
+	return { ...ctx, crId: cr.id };
+}
