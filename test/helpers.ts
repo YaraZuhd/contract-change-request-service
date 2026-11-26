@@ -15,3 +15,13 @@ export function makeService() {
 	const service = new CrService(repo, agreements, budgets, copy(seed.committeeConfig));
 	return { service, repo, agreements, budgets, users: seed.users };
 }
+
+/** Run a function that should throw, and return the error's code (undefined if nothing was thrown). */
+export function codeOf(fn: () => unknown): string | undefined {
+	try {
+		fn();
+	} catch (e) {
+		return (e as { code?: string }).code;
+	}
+	return undefined;
+}
