@@ -4,7 +4,7 @@ import { CrStatus, CrAction } from './cr.enums';
 import { assertTransition } from './cr-state-machine';
 import { computeTotals } from './cr-totals';
 import { Errors } from '../common/errors';
-import { ReqUser, canActOn, hasPolicy } from '../common/policy';
+import { ReqUser, canActOn } from '../common/policy';
 import { round2 } from '../common/money.util';
 
 /**
@@ -36,11 +36,10 @@ export class CrService {
 		cr.audit = [...cr.audit, { action, byUserId, at, note }];
 	}
 
-	// ---- Actions to implement -------------------------------------------------------------
-
+	//** DRAFT -> SUBMITTED. Needs the update policy: org scope, or own CRs only. */
 	submit(user: ReqUser, id: string, at: string): ChangeRequest {
 		const cr = this.getOrThrow(user, id);
-		if (!hasPolicy(user, 'cr_u_u') && !hasPolicy(user, 'cr_u_o')) throw Errors.forbidden('Cannot submit');
+		if (!canActOn(user, cr, 'u')) throw Errors.forbidden('Cannot submit');
 		this.transition(cr, CrStatus.SUBMITTED, CrAction.SUBMIT, user.id, at);
 		return this.repo.save(cr);
 	}
@@ -233,7 +232,6 @@ export class CrService {
 
 	/** List the CRs this user is allowed to see. Honor the user's read scope (u/w/o). */
 	list(user: ReqUser): ChangeRequest[] {
-		// TODO: org scoping happens in the repo; narrow further by the caller's read scope.
 		return this.repo.list(user);
 	}
 
