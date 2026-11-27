@@ -32,7 +32,6 @@ export function crReadScope(user: ReqUser): ReadScope | null {
 
 /** True if the user's widest policy for this action covers the CR (org, workspace or own). */
 export function canActOn(user: ReqUser, cr: ChangeRequest, action: PolicyAction): boolean {
-	// Implementation for checking if user can perform action on CR
 	if (cr.orgCode !== user.orgCode) return false; // User must belong to the same org as the CR
 
 	const orgScopePolicy = `cr_${action}_o`;

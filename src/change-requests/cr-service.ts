@@ -8,9 +8,9 @@ import { ReqUser, canActOn } from '../common/policy';
 import { round2 } from '../common/money.util';
 
 /**
- * Orchestrates CR actions. The transition + audit helper is provided; the action methods are
- * STUBS for you to implement (see `../../CANDIDATE_BRIEF.md`). Make the workflow correct, safe,
- * and complete.
+ * Orchestrates CR actions. Every action loads the CR through the scoped repo, checks policy,
+ * validates everything that can fail, and only then changes state through the guarded
+ * `transition` helper.
  */
 export class CrService {
 	constructor(
@@ -36,7 +36,7 @@ export class CrService {
 		cr.audit = [...cr.audit, { action, byUserId, at, note }];
 	}
 
-	//** DRAFT -> SUBMITTED. Needs the update policy: org scope, or own CRs only. */
+	/** DRAFT -> SUBMITTED. Needs the update policy: org scope, or own CRs only. */
 	submit(user: ReqUser, id: string, at: string): ChangeRequest {
 		const cr = this.getOrThrow(user, id);
 		if (!canActOn(user, cr, 'u')) throw Errors.forbidden('Cannot submit');
